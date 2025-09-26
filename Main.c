@@ -512,7 +512,7 @@ void vulnMix(struct iphdr *iph, struct udphdr *udph) {
             memcpy((void *)udph + sizeof(struct udphdr), dns_payload, dns_len);
             udph->len = htons(sizeof(struct udphdr) + dns_len);
             udph->dest = htons(53);
-            iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + dns_len);
+            iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + dns_len;)
             break;
     }
 }
