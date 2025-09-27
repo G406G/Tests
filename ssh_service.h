@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include "cnc_common.h"  // Add this line
 
 // Forward declarations from main C&C
 typedef struct bot_s bot_t;
