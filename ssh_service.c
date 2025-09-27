@@ -34,7 +34,7 @@ void load_users_from_file() {
     if (!file) {
         printf("Creating default users file...\n");
         create_default_users();
-        // save_users_to_file(); // Commented out since save function isn't defined
+        save_users_to_file();
         return;
     }
     
@@ -56,11 +56,11 @@ void load_users_from_file() {
     
     if (user_count == 0) {
         create_default_users();
-        // save_users_to_file(); // Commented out since save function isn't defined
+        save_users_to_file();
     }
 }
 
-/*
+// Add the missing save_users_to_file function
 void save_users_to_file() {
     FILE* file = fopen(USERS_FILE, "w");
     if (!file) {
@@ -73,7 +73,6 @@ void save_users_to_file() {
     }
     fclose(file);
 }
-*/
 
 int authenticate_user(const char* username, const char* password, user_t* user) {
     for (int i = 0; i < user_count; i++) {
