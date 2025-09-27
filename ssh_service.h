@@ -5,11 +5,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "cnc_common.h"  // Add this line
+#include "cnc_common.h"  // This contains the actual structure definitions
 
-// Forward declarations from main C&C
-typedef struct bot_s bot_t;
-typedef struct attack_s attack_t;
+// Remove the forward declarations since they're in cnc_common.h
+// typedef struct bot_s bot_t;
+// typedef struct attack_s attack_t;
 
 #define SSH_PORT 2222
 #define MAX_CLIENTS 10
@@ -47,13 +47,13 @@ void ssh_start_attack(client_session_t* session, const char* command);
 void ssh_stop_attack(client_session_t* session, const char* command);
 void ssh_system_info(client_session_t* session);
 
-// Real data access functions
-extern bot_t* get_bots_list(void);
-extern int get_bot_count(void);
-extern attack_t* get_attacks_list(void);
-extern int get_attack_count(void);
-extern void start_real_attack(const char* method, const char* target, int port, int duration, int threads);
-extern void stop_real_attack(int attack_id);
-extern void stop_all_real_attacks(void);
+// Remove the extern declarations since they're in cnc_common.h
+// extern bot_t* get_bots_list(void);
+// extern int get_bot_count(void);
+// extern attack_t* get_attacks_list(void);
+// extern int get_attack_count(void);
+// extern void start_real_attack(const char* method, const char* target, int port, int duration, int threads);
+// extern void stop_real_attack(int attack_id);
+// extern void stop_all_real_attacks(void);
 
 #endif
