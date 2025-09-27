@@ -13,7 +13,7 @@ int resolve_hostname(const char* hostname, char* ip_buffer) {
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     
-    if((status = getaddrinfo(hostname, NULL, &hints, &res)) != 0) {
+    if ((status = getaddrinfo(hostname, NULL, &hints, &res)) != 0) {
         return -1;
     }
     
@@ -36,11 +36,11 @@ int validate_port(int port) {
 void print_network_info(const char* target, int port) {
     char ip[INET_ADDRSTRLEN];
     
-    if(validate_ip(target)) {
+    if (validate_ip(target)) {
         strcpy(ip, target);
         printf("Target IP: %s\n", ip);
     } else {
-        if(resolve_hostname(target, ip) == 0) {
+        if (resolve_hostname(target, ip) == 0) {
             printf("Resolved %s -> %s\n", target, ip);
         } else {
             printf("Could not resolve hostname: %s\n", target);
@@ -50,10 +50,12 @@ void print_network_info(const char* target, int port) {
     printf("Port: %d\n", port);
     
     // Basic service detection
-    if(port == 80) printf("Service: HTTP\n");
-    else if(port == 443) printf("Service: HTTPS\n");
-    else if(port == 22) printf("Service: SSH\n");
-    else if(port == 53) printf("Service: DNS\n");
-    else if(port == 25) printf("Service: SMTP\n");
+    if (port == 80) printf("Service: HTTP\n");
+    else if (port == 443) printf("Service: HTTPS\n");
+    else if (port == 22) printf("Service: SSH\n");
+    else if (port == 53) printf("Service: DNS\n");
+    else if (port == 25) printf("Service: SMTP\n");
+    else if (port == 21) printf("Service: FTP\n");
+    else if (port == 23) printf("Service: Telnet\n");
     else printf("Service: Unknown\n");
 }
