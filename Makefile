@@ -1,32 +1,40 @@
-CC=gcc
-CFLAGS=-Wall -Wextra -pedantic -D_GNU_SOURCE -DDEBUG
-LDFLAGS=-lpthread -lcurl
+# C&C Server Makefile
+# Educational Use Only
 
-# Source files
-CNC_SOURCES = Main.c ascii_art.c network_utils.c
-BOT_SOURCES = bot.c attack_methods.c command_handler.c ascii_art.c killer.c daemon.c network_utils.c
+CC = gcc
+CFLAGS = -Wall -Wextra -pedantic -D_GNU_SOURCE -D_POSIX_C_SOURCE=200112L
+LDFLAGS = -lpthread -lcurl
+SOURCES = cnc_server.c ascii_art.c network_utils.c ssh_service.c
+OBJECTS = $(SOURCES:.c=.o)
+TARGET = cnc_server
 
-all: cnc_server bot
+# Debug build
+DEBUG_CFLAGS = -g -DDEBUG
 
-cnc_server: $(CNC_SOURCES)
-	$(CC) $(CFLAGS) -o cnc $(CNC_SOURCES) $(LDFLAGS)
+.PHONY: all debug clean install
 
-bot: $(BOT_SOURCES)
-	$(CC) $(CFLAGS) -o bot $(BOT_SOURCES) $(LDFLAGS)
+all: $(TARGET)
 
-debug: CFLAGS += -g -DDEBUG
-debug: all
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJECTS) $(LDFLAGS)
+	@echo "C&C Server built successfully"
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+debug: CFLAGS += $(DEBUG_CFLAGS)
+debug: $(TARGET)
 
 clean:
-	rm -f cnc_server bot
+	rm -f $(TARGET) $(OBJECTS) users_logins.txt attack_log.txt
+	@echo "Clean complete"
 
-install:
-	chmod +x cnc_server bot
-	@echo "Installation complete. Remember: FOR EDUCATIONAL USE ONLY!"
+install: $(TARGET)
+	chmod +x $(TARGET)
+	@echo "Installation complete"
 
-security-check:
-	@echo "Running security checks..."
-	@echo "This tool is for AUTHORIZED TESTING ONLY!"
-	@echo "Use only on systems you own or have explicit permission to test."
-
-.PHONY: all clean install debug security-check
+# Dependencies
+cnc_server.o: cnc_server.c ascii_art.h network_utils.h ssh_service.h
+ascii_art.o: ascii_art.c ascii_art.h
+network_utils.o: network_utils.c network_utils.h
+ssh_service.o: ssh_service.c ssh_service.h
