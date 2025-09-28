@@ -16,12 +16,6 @@
 #include <curl/curl.h>
 #include <fcntl.h>
 
-volatile int attack_active = 0;
-
-// Global statistics
-volatile long long total_packets_sent = 0;
-volatile long long total_bytes_sent = 0;
-volatile int active_threads = 0;
 
 // ==================== UDP FLOOD ====================
 void* udp_flood_worker(void* arg) {
