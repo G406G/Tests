@@ -9,7 +9,7 @@
 
 // Implanted C&C configuration
 #define CNC_SERVER "127.0.0.1"
-#define CNC_PORT 1337
+#define CNC_PORT 1930
 
 // Security settings
 #define ENABLE_KILLER 1
