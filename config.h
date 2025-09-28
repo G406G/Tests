@@ -8,7 +8,7 @@
 #define CNC_RECONNECT_TIMEOUT 30
 
 // Implanted C&C configuration
-#define CNC_SERVER "192.168.1.100"
+#define CNC_SERVER "127.0.0.1"
 #define CNC_PORT 1337
 
 // Security settings
