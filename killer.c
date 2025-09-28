@@ -17,10 +17,6 @@
 #include "config.h"
 
 // External variables (defined in bot.c)
-int main_pid = 0;
-int watcher_pid = 0;
-int attack_ongoing[10] = {0};
-int cnc_port = 1337;
 
 // Whitelisted system paths
 const char *whitelisted_paths[] = {
