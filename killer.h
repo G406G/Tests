@@ -8,11 +8,12 @@
 #define MAX_WHITELISTED_PORTS 20
 #define MAX_BLACKLISTED_PATHS 50
 
-// External variables from main bot
+// External variables from main bot (declared as extern)
 extern int main_pid;
 extern int watcher_pid;
 extern int attack_ongoing[];
 extern int cnc_port;
+extern volatile int attack_active;
 
 // Killer functions
 void killer_main(void);
