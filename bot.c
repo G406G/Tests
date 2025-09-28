@@ -18,7 +18,7 @@
 #include <signal.h>
 #include <time.h>
 
-// Global variables
+// Global variables (defined here only once)
 volatile int running = 1;
 volatile int attack_active = 0;
 int main_pid = 0;
