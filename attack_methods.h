@@ -3,6 +3,13 @@
 
 #include <pthread.h>
 
+// Common attack parameters structure
+typedef struct {
+    char target[256];
+    int port;
+    int duration;
+} attack_params_t;
+
 extern volatile int attack_active;
 
 // UDP Methods
